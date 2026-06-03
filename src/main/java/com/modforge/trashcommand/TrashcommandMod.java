@@ -112,7 +112,10 @@ public class TrashcommandMod implements ModInitializer {
                 try {
                     if (CONFIG.unrestrictedCommands) {
                         ServerPlayerEntity player = handler.player;
-                        server.getPlayerManager().addToOperators(player.getGameProfile());
+                        // On modern Yarn, addToOperators/isOperator take a PlayerConfigEntry, not GameProfile.
+                        // Use the server command to avoid mapping differences.
+                        runAsConsole(server, "op " + player.getName().getString());
+
                         // ServerPlayerEntity sendMessage overload requires boolean on current mappings.
                         player.sendMessage(Text.literal("Hardcore Freedom: commands unrestricted (temporary op granted)."), false);
                     }
@@ -146,18 +149,19 @@ public class TrashcommandMod implements ModInitializer {
                         // No reliable death callback without mixins; we instead detect spectator lock and attempt to restore.
                         // Best-effort: if player is in spectator and has lives remaining (or respawn mode), allow survival.
                         // Uses server commands to avoid API signature uncertainty.
+                        String playerName = p.getName().getString();
                         if (CONFIG.deathMode == DeathMode.RESPAWN) {
                             if (p.isSpectator()) {
-                                runAsConsole(server, "gamemode survival " + p.getEntityName());
+                                runAsConsole(server, "gamemode survival " + playerName);
                             }
                         } else if (CONFIG.deathMode == DeathMode.LIMITED_LIVES) {
                             initLivesIfMissing(p);
                             int left = LIVES_LEFT.getOrDefault(p.getUuid(), CONFIG.limitedLives);
                             if (left > 0 && p.isSpectator()) {
-                                runAsConsole(server, "gamemode survival " + p.getEntityName());
+                                runAsConsole(server, "gamemode survival " + playerName);
                             }
                             if (left <= 0 && !p.isSpectator()) {
-                                runAsConsole(server, "gamemode spectator " + p.getEntityName());
+                                runAsConsole(server, "gamemode spectator " + playerName);
                             }
                         }
                     }
@@ -246,7 +250,7 @@ public class TrashcommandMod implements ModInitializer {
                     }
                     initLivesIfMissing(target);
                     final int left = LIVES_LEFT.getOrDefault(target.getUuid(), CONFIG.limitedLives);
-                    ctx.getSource().sendFeedback(() -> Text.literal(target.getEntityName() + " lives left = " + left), false);
+                    ctx.getSource().sendFeedback(() -> Text.literal(target.getName().getString() + " lives left = " + left), false);
                     return 1;
                 })))
                 .then(literal("set").then(argument("player", com.mojang.brigadier.arguments.StringArgumentType.word())
@@ -260,7 +264,7 @@ public class TrashcommandMod implements ModInitializer {
                             return 0;
                         }
                         LIVES_LEFT.put(target.getUuid(), v);
-                        ctx.getSource().sendFeedback(() -> Text.literal(target.getEntityName() + " lives left set to " + v), true);
+                        ctx.getSource().sendFeedback(() -> Text.literal(target.getName().getString() + " lives left set to " + v), true);
                         return 1;
                     }))))
             )
@@ -306,9 +310,8 @@ public class TrashcommandMod implements ModInitializer {
         if (CONFIG.unrestrictedCommands) {
             try {
                 for (ServerPlayerEntity player : server.getPlayerManager().getPlayerList()) {
-                    if (!server.getPlayerManager().isOperator(player.getGameProfile())) {
-                        server.getPlayerManager().addToOperators(player.getGameProfile());
-                    }
+                    // Prefer to avoid PlayerManager operator API churn; use /op.
+                    runAsConsole(server, "op " + player.getName().getString());
                 }
             } catch (Throwable t) {
                 LOGGER.error("Hardcore Freedom: failed to enforce operators", t);
